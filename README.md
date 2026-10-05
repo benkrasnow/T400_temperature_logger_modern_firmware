@@ -4,6 +4,12 @@ Port of [PaxInstruments/t400-firmware](https://github.com/PaxInstruments/t400-fi
 in Arduino IDE 2.3.x using only the stock Arduino AVR core and libraries from the Library Manager.
 No forked libraries and no forked Arduino core are needed.
 
+![T400 temperature logger](T400_temperature_logger.jpg)
+
+
+![Web app logger](web_app_screenshot.png)
+
+
 Current build (arduino-cli 1.5.1 / AVR core 1.8.8): **28,424 B flash (99%), 2,155 B RAM (84%, 405 B free)**.
 The original Pax build was 24,062 B / 2,275 B (285 B free). Flash is the tight resource: RTC support, serial commands,
 timestamps and calibration cost about 4.3 kB, which is why the board definition builds with `-mcall-prologues`
