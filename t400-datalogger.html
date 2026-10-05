@@ -1,0 +1,992 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T400 Datalogger</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #d9dde5;
+  --grid: #e7eaf0; --axis: #8a93a5; --accent: #2563eb; --accent-text: #ffffff;
+  --good: #1a9b52; --warn: #c77700; --bad: #d0342c;
+  --ch1: #1f77b4; --ch2: #ff7f0e; --ch3: #2ca02c; --ch4: #d62728;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11151c; --panel: #1a202b; --text: #e6e9ef; --muted: #9aa4b5; --line: #2c3544;
+    --grid: #262e3b; --axis: #7e8aa0; --accent: #5b8def; --accent-text: #0b1020;
+    --good: #3ac27a; --warn: #f0a63a; --bad: #ff6b61;
+    --ch1: #5aa9e6; --ch2: #ffa64d; --ch3: #55c46a; --ch4: #ff6b6b;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: flex; flex-direction: column;
+}
+header {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+header h1 { font-size: 17px; margin: 0 8px 0 0; font-weight: 650; letter-spacing: .2px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.on { background: var(--good); } .dot.busy { background: var(--warn); } .dot.err { background: var(--bad); }
+#connText { color: var(--muted); }
+.spacer { flex: 1; }
+button, select {
+  font: inherit; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 7px; padding: 6px 11px; cursor: pointer;
+}
+button:hover:not(:disabled), select:hover { border-color: var(--axis); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+button.icon { padding: 6px 9px; min-width: 34px; }
+button.small { padding: 3px 8px; font-size: 12px; }
+main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 16px; }
+#banner {
+  display: none; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, var(--panel));
+}
+#banner.show { display: block; }
+.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px 9px; border-top: 4px solid var(--c); position: relative;
+}
+.card.off { opacity: .45; }
+.card .head { display: flex; align-items: center; gap: 7px; }
+.card .head input[type=checkbox] { accent-color: var(--c); margin: 0; cursor: pointer; flex: none; }
+.card .name {
+  flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--muted); background: transparent;
+  border: 1px solid transparent; border-radius: 5px; padding: 1px 5px; margin-left: -5px; text-overflow: ellipsis;
+}
+.card .name:hover { border-color: var(--line); }
+.card .name:focus { outline: none; border-color: var(--accent); color: var(--text); background: var(--bg); }
+.card .val { font-size: 32px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 2px; }
+.card .val small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.card .stats { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; min-height: 17px; }
+.chartbox { flex: 1; min-height: 300px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; }
+.toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-bottom: 8px; }
+.toolbar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+.toolbar label { color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+.toolbar button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+#plot { position: relative; flex: 1; min-height: 220px; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+#scroll { position: relative; height: 16px; margin-top: 8px; background: var(--grid); border-radius: 8px; user-select: none; }
+#thumb { position: absolute; top: 2px; bottom: 2px; min-width: 28px; background: var(--axis); opacity: .75; border-radius: 6px; cursor: grab; }
+#thumb:hover, #thumb.drag { opacity: 1; }
+.info { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.panel h2 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; }
+dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#log { height: 112px; overflow: auto; font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--muted); }
+#log div { white-space: pre-wrap; } #log .err { color: var(--bad); } #log .ev { color: var(--text); }
+#toast {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(20px); opacity: 0;
+  background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; transition: .25s; pointer-events: none; z-index: 9;
+}
+#toast.show { opacity: 1; transform: translateX(-50%); }
+#fileBar {
+  display: none; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+#fileBar.show { display: flex; }
+#fileBar .grow { flex: 1; min-width: 200px; }
+#fileBar .note { color: var(--muted); font-size: 12px; }
+#drop {
+  display: none; position: fixed; inset: 0; z-index: 20; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent); border: 3px dashed var(--accent); font-size: 22px; font-weight: 600; pointer-events: none;
+}
+#drop.show { display: flex; }
+@media (max-width: 860px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .info { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>T400 Datalogger</h1>
+  <span class="dot" id="dot"></span><span id="connText">Not connected</span>
+  <span class="spacer"></span>
+  <button id="btnDemo" title="Feed simulated readings through the same code path, to try the interface without a device">Demo</button>
+  <button id="btnAny" title="Pick any serial port instead of only the T400 (USB id 2B51)">Other port…</button>
+  <button id="btnConnect" class="primary">Connect</button>
+</header>
+
+<main>
+  <div id="banner"></div>
+  <div id="fileBar"><div class="grow"><b id="fbName"></b> <span id="fbInfo"></span><div class="note" id="fbNote"></div></div>
+    <button id="btnCloseFile" title="Close the file and go back to live data">Close file</button></div>
+
+  <section class="cards" id="cards"></section>
+
+  <section class="chartbox">
+    <div class="toolbar">
+      <label>Show <select id="selWindow"></select></label>
+      <button id="btnLive" class="icon" title="Follow the newest data">Live</button>
+      <span class="sep"></span>
+      <button id="btnBack" class="icon" title="Scroll back in time (drag the chart or the bar below too)">◀</button>
+      <button id="btnFwd" class="icon" title="Scroll forward in time">▶</button>
+      <button id="btnZoomIn" class="icon" title="Zoom in (mouse wheel)">＋</button>
+      <button id="btnZoomOut" class="icon" title="Zoom out (mouse wheel)">－</button>
+      <button id="btnFit" title="Show all data">Fit all</button>
+      <span class="sep"></span>
+      <label><input type="checkbox" id="chkAutoY" checked> Auto Y</label>
+      <label>Units <select id="selUnit"><option value="C">°C</option><option value="F">°F</option><option value="K">K</option></select></label>
+      <label>Time <select id="selTime" title="Which clock positions the samples on the time axis">
+        <option value="device">Device clock</option><option value="pc">PC clock</option></select></label>
+      <span class="spacer"></span>
+      <button id="btnOpen" title="Open a .csv recorded by the T400 (copied from its SD card), or drop the file onto this page">Open CSV…</button>
+      <button id="btnClear" class="danger" title="Delete all collected data">Clear</button>
+      <button id="btnSave" class="primary" title="Save the samples in the visible time range">Save CSV</button>
+      <button id="btnSaveAll" class="small" title="Save every collected sample">all</button>
+    </div>
+    <div id="plot"><canvas id="chart"></canvas></div>
+    <div id="scroll"><div id="thumb"></div></div>
+  </section>
+
+  <section class="info">
+    <div class="panel">
+      <h2>Device</h2>
+      <dl>
+        <dt>Mode</dt><dd id="iMode">–</dd>
+        <dt>Sample interval</dt><dd id="iInterval">–</dd>
+        <dt>Units</dt><dd id="iUnit">–</dd>
+        <dt>Device clock</dt><dd><span id="iClock">–</span> <button id="btnSync" class="small" disabled title="Set the T400's clock to this PC's time">Sync to PC</button></dd>
+        <dt>Samples</dt><dd id="iCount">0</dd>
+        <dt>Last sample</dt><dd id="iLast">–</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <h2>Messages</h2>
+      <div id="log"></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+<div id="drop">Drop a T400 .csv file to open it</div>
+<input type="file" id="fileIn" accept=".csv,.txt,text/csv" hidden>
+
+<script>
+'use strict';
+/* =====================================================================================================
+   T400 datalogger. One file, no dependencies. Needs a Chromium based browser (Chrome, Edge) for Web Serial.
+
+   Serial protocol (9600 baud, text lines) from the T400 firmware:
+     <elapsed>, <YYYY-MM-DD HH:MM:SS.f | unset>, <t1>, <t2>, <t3>, <t4>     one sample (a "-" = no probe)
+     S,<version>,<C|F|K>,<interval s, 0 = 500 ms>,<log file or ->              status (also on request: H)
+     OK ... / ERR ...                                                          replies to commands
+   Commands sent to the T400:  H (status)   T<YYYY-MM-DD HH:MM:SS> (set clock)
+   ===================================================================================================== */
+
+const N_CH = 4;
+const MAX_POINTS = 500000;
+const WINDOWS = [['fit', 'All data'], [30e3, '30 seconds'], [60e3, '1 minute'], [5 * 60e3, '5 minutes'], [15 * 60e3, '15 minutes'],
+                 [60 * 60e3, '1 hour'], [6 * 3600e3, '6 hours'], [24 * 3600e3, '24 hours'], ['custom', 'Custom']];
+const MIN_SPAN = 2000;
+
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ------------------------------------------------------------------------------------------ state */
+const S = {
+  T: [],            // x position of each sample in ms (strictly increasing)
+  TP: [],           // PC arrival time (ms)
+  TD: [],           // device timestamp (ms), NaN when the device clock is not set
+  E: [],            // device elapsed time (s)
+  V: Array.from({ length: N_CH }, () => []),   // temperatures in °C (NaN = no probe)
+  dev: { unit: 'C', interval: null, file: null, version: null, known: false, mode: '' },
+  unit: 'C',        // display unit
+  timeSource: 'device',
+  visible: [true, true, true, true],
+  names: ['', '', '', ''],      // custom channel names; '' = default "Channel N"
+  markers: [],      // {t, text}
+  view: { start: 0, end: 60000, span: 60000, mode: 'follow', autoY: true, yMin: 0, yMax: 100 },
+  offsets: [],      // recent device-minus-PC clock differences (ms)
+  lastElapsed: null, lastSampleAt: 0, statusPending: null,
+  file: null,       // set while a CSV file is being viewed: {name, unit, count, skipped, start, end, intervalSec, estimated, note}
+  conn: { port: null, reader: null, writer: null, demo: null, wantConnected: false, manualDisconnect: false },
+};
+try { Object.assign(S, JSON.parse(localStorage.getItem('t400prefs') || '{}')); } catch (e) { /* no storage: fine */ }
+S.names = Array.from({ length: N_CH }, (_, c) => (Array.isArray(S.names) && typeof S.names[c] === 'string') ? S.names[c].slice(0, 24) : '');
+const chName = c => S.names[c] || `Channel ${c + 1}`;
+function savePrefs() {
+  try { localStorage.setItem('t400prefs', JSON.stringify({ unit: S.unit, timeSource: S.timeSource, visible: S.visible, names: S.names })); } catch (e) { /* ignore */ }
+}
+
+/* ------------------------------------------------------------------------------------------ utils */
+const pad = (n, w = 2) => String(n).padStart(w, '0');
+function fmtDate(ms, frac = 0) {
+  const d = new Date(ms);
+  let s = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (frac === 1) s += '.' + Math.floor(d.getMilliseconds() / 100);
+  if (frac === 3) s += '.' + pad(d.getMilliseconds(), 3);
+  return s;
+}
+function toC(v, unit) { return unit === 'F' ? (v - 32) / 1.8 : unit === 'K' ? v - 273.15 : v; }
+function fromC(c) { return S.unit === 'F' ? c * 1.8 + 32 : S.unit === 'K' ? c + 273.15 : c; }
+const unitLabel = () => S.unit === 'K' ? 'K' : '°' + S.unit;
+const fmtVal = v => (Number.isFinite(v) ? v.toFixed(1) : '–');
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2600);
+}
+function logMsg(text, cls = '') {
+  const box = $('log'); const div = document.createElement('div');
+  div.className = cls; div.textContent = new Date().toLocaleTimeString() + '  ' + text;
+  box.appendChild(div);
+  while (box.childElementCount > 200) box.firstChild.remove();
+  box.scrollTop = box.scrollHeight;
+}
+function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < x) lo = m + 1; else hi = m; } return lo; }
+function fmtInterval(s) { return s === null ? '–' : s === 0 ? '500 ms' : s + ' s'; }
+function fmtDuration(ms) {
+  const s = Math.round(Math.abs(ms) / 1000);
+  if (s < 60) return s + ' s'; if (s < 3600) return Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+  return Math.floor(s / 3600) + ' h ' + Math.floor((s % 3600) / 60) + ' min';
+}
+
+/* ------------------------------------------------------------------------------------- data model */
+function parseDeviceTime(str) {          // "2026-10-04 19:32:35.5" (local time) -> ms, NaN if unset
+  const m = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)(?:\.(\d{1,3}))?$/.exec(str);
+  if (!m) return NaN;
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() + (m[7] ? Math.round(+('0.' + m[7]) * 1000) : 0);
+}
+function xFor(i) {
+  const useDev = S.timeSource === 'device' && Number.isFinite(S.TD[i]);
+  return useDev ? S.TD[i] : S.TP[i];
+}
+function rebuildX() {
+  S.T.length = 0;
+  for (let i = 0; i < S.TP.length; i++) {
+    let x = xFor(i);
+    if (i && x <= S.T[i - 1]) x = S.T[i - 1] + 1;       // keep strictly increasing (clock jumps, batching)
+    S.T.push(x);
+  }
+}
+function addSample(elapsed, devMs, valuesDeviceUnit, pcMs) {
+  const unit = S.dev.unit;
+  const i = S.TP.length;
+  S.TP.push(pcMs); S.TD.push(devMs); S.E.push(elapsed);
+  for (let c = 0; c < N_CH; c++) S.V[c].push(Number.isFinite(valuesDeviceUnit[c]) ? toC(valuesDeviceUnit[c], unit) : NaN);
+  let x = xFor(i);
+  if (i && x <= S.T[i - 1]) x = S.T[i - 1] + 1;
+  S.T.push(x);
+  if (S.TP.length > MAX_POINTS) {                        // drop the oldest tenth
+    const cut = Math.floor(MAX_POINTS / 10);
+    for (const a of [S.T, S.TP, S.TD, S.E, ...S.V]) a.splice(0, cut);
+    S.markers = S.markers.filter(m => m.t >= S.T[0]);
+    logMsg(`Reached ${MAX_POINTS.toLocaleString()} samples: oldest ${cut.toLocaleString()} dropped. Save a CSV to keep them.`, 'err');
+  }
+  if (Number.isFinite(devMs)) { S.offsets.push(devMs - pcMs); if (S.offsets.length > 25) S.offsets.shift(); }
+  S.lastSampleAt = pcMs;
+}
+function clearData() {
+  for (const a of [S.T, S.TP, S.TD, S.E, ...S.V, S.markers]) a.length = 0;
+  S.offsets.length = 0; S.lastElapsed = null; S.file = null; updateFileBar();
+  S.view.mode = 'follow'; syncWindowSelect(); requestDraw(); updateUI();
+}
+
+/* ------------------------------------------------------------------------------- line processing */
+function handleLine(raw, pcMs = Date.now()) {
+  const line = raw.trim();
+  if (!line) return;
+  let m;
+  if ((m = /^S,([^,]*),([CFK]),(\d+),(.*)$/.exec(line))) { handleStatus(m[1], m[2], +m[3], m[4]); return; }
+  if ((m = /^(\d+(?:\.\d)?),\s*(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d)?|unset),\s*(.*)$/.exec(line))) {
+    const fields = m[3].split(',').map(s => s.trim());
+    if (fields.length < N_CH) { logMsg('Ignored malformed row: ' + line, 'err'); return; }
+    if (S.file) return;                                  // live data is paused while a file is being viewed
+    const vals = fields.slice(0, N_CH).map(s => (s === '-' ? NaN : parseFloat(s)));
+    const elapsed = parseFloat(m[1]);
+    if (S.lastElapsed !== null && elapsed < S.lastElapsed - 0.01) {
+      // elapsed restarted: logging started/stopped, or the interval/unit changed (the T400 sends a status line for those)
+      S.statusPending = performance.now() + 500;
+    }
+    S.lastElapsed = elapsed;
+    addSample(elapsed, m[2] === 'unset' ? NaN : parseDeviceTime(m[2]), vals, pcMs);
+    afterNewData();
+    return;
+  }
+  if (/^(OK|ERR|CAL)\b/.test(line)) { logMsg('Device: ' + line, line.startsWith('ERR') ? 'err' : 'ev'); return; }
+  if (/^time \(s\)/.test(line)) {                       // CSV header printed when logging starts
+    const u = /\((C|F|K)\)/.exec(line); if (u) setDeviceUnit(u[1]);
+    return;
+  }
+}
+function setDeviceUnit(u) { S.dev.unit = u; }
+function handleStatus(version, unit, interval, file) {
+  const prev = { ...S.dev };
+  S.dev.version = version; S.dev.unit = unit; S.dev.interval = interval; S.dev.known = true;
+  S.dev.file = file === '-' ? null : file;
+  S.statusPending = null;
+  const now = S.T.length ? S.T[S.T.length - 1] : Date.now();
+  if (prev.known) {
+    if (prev.unit !== unit) { logMsg(`Device units changed to °${unit}`, 'ev'); S.markers.push({ t: now, text: '°' + unit }); }
+    if (prev.interval !== interval) { logMsg(`Sample interval is now ${fmtInterval(interval)}`, 'ev'); S.markers.push({ t: now, text: fmtInterval(interval) }); }
+    if (prev.file !== S.dev.file) {
+      logMsg(S.dev.file ? `Logging started to ${S.dev.file}` : 'Logging stopped', 'ev');
+      S.markers.push({ t: now, text: S.dev.file ? 'log start' : 'log stop' });
+    }
+  } else {
+    logMsg(`T400 firmware ${version}, ${fmtInterval(interval)}, °${unit}${S.dev.file ? ', logging to ' + S.dev.file : ''}`, 'ev');
+  }
+  requestDraw(); updateUI();
+}
+function afterNewData() {
+  applyViewMode();
+  requestDraw();
+}
+
+/* ----------------------------------------------------------------------------------------- view */
+function dataExtent() { return S.T.length ? [S.T[0], S.T[S.T.length - 1]] : [Date.now() - S.view.span, Date.now()]; }
+function applyViewMode() {
+  const v = S.view; const [t0, t1] = dataExtent();
+  if (v.mode === 'follow') {
+    v.end = t1 + v.span * 0.02; v.start = v.end - v.span;
+  } else if (v.mode === 'fit') {
+    const span = Math.max(t1 - t0, MIN_SPAN); const padMs = span * 0.02;
+    v.start = t0 - padMs; v.end = t1 + padMs; v.span = v.end - v.start;
+  }
+  updateScrollbar(); syncWindowSelect();
+}
+function clampSpan(s) { const [t0, t1] = dataExtent(); return Math.min(Math.max(s, MIN_SPAN), Math.max((t1 - t0) * 3, 30 * 86400e3)); }
+function setWindow(val) {
+  const v = S.view;
+  if (val === 'fit') v.mode = 'fit';
+  else if (val === 'custom') return;
+  else { v.span = +val; v.mode = 'follow'; }
+  applyViewMode(); requestDraw();
+}
+function zoom(factor, anchorFrac) {
+  const v = S.view;
+  const f = v.mode === 'follow' ? 1 : anchorFrac;       // live view keeps the newest data in place
+  const t = v.start + f * v.span;
+  v.span = clampSpan(v.span * factor);
+  v.start = t - f * v.span; v.end = v.start + v.span;
+  if (v.mode === 'fit') v.mode = 'free';
+  if (v.mode === 'follow') applyViewMode();
+  updateScrollbar(); syncWindowSelect(); requestDraw();
+}
+function panBy(dt) {
+  const v = S.view; const [, t1] = dataExtent();
+  v.start += dt; v.end += dt;
+  v.mode = (v.end >= t1) ? 'follow' : 'free';           // reaching the newest data resumes live view
+  if (v.mode === 'follow') applyViewMode();
+  updateScrollbar(); syncWindowSelect(); requestDraw();
+}
+function syncWindowSelect() {
+  const v = S.view; let sel = 'custom';
+  if (v.mode === 'fit') sel = 'fit';
+  else if (v.mode === 'follow') { const hit = WINDOWS.find(w => typeof w[0] === 'number' && Math.abs(w[0] - v.span) < 1); if (hit) sel = String(hit[0]); }
+  $('selWindow').value = sel;
+  $('btnLive').classList.toggle('active', v.mode === 'follow');
+}
+
+/* ----------------------------------------------------------------------------------------- chart */
+const cv = $('chart'); const ctx = cv.getContext('2d');
+let CW = 0, CH = 0, hover = null, drawQueued = false;
+const PAD = { l: 60, r: 14, t: 16, b: 28 };
+function resizeChart() {
+  const dpr = window.devicePixelRatio || 1; const r = cv.getBoundingClientRect();
+  CW = r.width; CH = r.height; cv.width = Math.max(1, Math.round(CW * dpr)); cv.height = Math.max(1, Math.round(CH * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); requestDraw();
+}
+function requestDraw() { if (!drawQueued) { drawQueued = true; requestAnimationFrame(() => { drawQueued = false; draw(); }); } }
+
+function niceStep(range, targetTicks) {
+  const raw = range / targetTicks, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+  return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * mag;
+}
+const TIME_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 604800].map(s => s * 1000);
+function visibleRange() {
+  const v = S.view, n = S.T.length;
+  if (!n) return [0, -1];
+  const i0 = Math.max(0, lowerBound(S.T, v.start) - 1), i1 = Math.min(n - 1, lowerBound(S.T, v.end));
+  return [i0, i1];
+}
+function autoY(i0, i1) {
+  let lo = Infinity, hi = -Infinity;
+  for (let c = 0; c < N_CH; c++) {
+    if (!S.visible[c]) continue;
+    const a = S.V[c];
+    for (let i = i0; i <= i1; i++) { const x = a[i]; if (x < lo) lo = x; if (x > hi) hi = x; }   // NaN never compares true
+  }
+  if (!Number.isFinite(lo)) return null;
+  lo = fromC(lo); hi = fromC(hi);
+  const range = Math.max(hi - lo, 2), mid = (hi + lo) / 2, padding = range * 0.12;
+  return [mid - range / 2 - padding, mid + range / 2 + padding];
+}
+function draw() {
+  const v = S.view, w = CW - PAD.l - PAD.r, h = CH - PAD.t - PAD.b;
+  ctx.clearRect(0, 0, CW, CH);
+  if (w < 20 || h < 20) return;
+  const grid = css('--grid'), axis = css('--axis'), text = css('--text'), muted = css('--muted');
+  const [i0, i1] = visibleRange();
+  if (v.autoY) {
+    const r = i1 >= i0 ? autoY(i0, i1) : null;
+    if (r) { v.yMin = r[0]; v.yMax = r[1]; }
+  }
+  const yMin = v.yMin, yMax = v.yMax;
+  const px = x => PAD.l + (x - v.start) / (v.end - v.start) * w;
+  const py = y => PAD.t + (1 - (y - yMin) / (yMax - yMin)) * h;
+  ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+
+  // Y grid and labels
+  const ys = niceStep(yMax - yMin, Math.max(3, h / 50)); ctx.textAlign = 'right';
+  for (let y = Math.ceil(yMin / ys) * ys; y <= yMax; y += ys) {
+    const yy = Math.round(py(y)) + .5;
+    ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(PAD.l, yy); ctx.lineTo(PAD.l + w, yy); ctx.stroke();
+    ctx.fillStyle = muted; ctx.fillText((+y.toFixed(6)).toFixed(ys < 1 ? 1 : 0), PAD.l - 7, yy);
+  }
+  ctx.save(); ctx.translate(13, PAD.t + h / 2); ctx.rotate(-Math.PI / 2); ctx.textAlign = 'center'; ctx.fillStyle = muted; ctx.fillText(unitLabel(), 0, 0); ctx.restore();
+
+  // X grid and labels (local time)
+  const span = v.end - v.start; const want = Math.max(2, w / 100);
+  let step = TIME_STEPS.find(s => span / s <= want) || TIME_STEPS[TIME_STEPS.length - 1];
+  const tzMs = d => -new Date(d).getTimezoneOffset() * 60000;
+  ctx.textAlign = 'center'; let lastDay = '';
+  for (let t = Math.ceil((v.start + tzMs(v.start)) / step) * step - tzMs(v.start); t <= v.end; t += step) {
+    const xx = Math.round(px(t)) + .5; if (xx < PAD.l || xx > PAD.l + w) continue;
+    ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(xx, PAD.t); ctx.lineTo(xx, PAD.t + h); ctx.stroke();
+    const d = new Date(t); const day = d.toDateString();
+    let label = step >= 60000 ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    ctx.fillStyle = muted; ctx.fillText(label, xx, PAD.t + h + 11);
+    if ((day !== lastDay && (span > 6 * 3600e3 || d.getHours() === 0 && d.getMinutes() === 0))) { ctx.fillStyle = text; ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}`, xx, PAD.t + h + 24); }
+    lastDay = day;
+  }
+  ctx.strokeStyle = axis; ctx.strokeRect(PAD.l + .5, PAD.t + .5, w, h);
+
+  // Event markers (log start/stop, unit and interval changes)
+  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, w, h); ctx.clip();
+  ctx.setLineDash([4, 4]); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  for (const m of S.markers) {
+    if (m.t < v.start || m.t > v.end) continue; const xx = Math.round(px(m.t)) + .5;
+    ctx.strokeStyle = axis; ctx.beginPath(); ctx.moveTo(xx, PAD.t); ctx.lineTo(xx, PAD.t + h); ctx.stroke();
+    ctx.fillStyle = muted; ctx.fillText(m.text, xx + 4, PAD.t + 3);
+  }
+  ctx.setLineDash([]); ctx.textBaseline = 'middle';
+
+  // Series
+  if (i1 >= i0) {
+    const count = i1 - i0 + 1; const dense = count > w * 1.5;
+    for (let c = 0; c < N_CH; c++) {
+      if (!S.visible[c]) continue;
+      const a = S.V[c]; ctx.strokeStyle = css('--ch' + (c + 1)); ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      if (!dense) {
+        let pen = false;
+        for (let i = i0; i <= i1; i++) {
+          const y = a[i]; if (!Number.isFinite(y)) { pen = false; continue; }
+          const X = px(S.T[i]), Y = py(fromC(y));
+          if (pen) ctx.lineTo(X, Y); else { ctx.moveTo(X, Y); pen = true; }
+        }
+        ctx.stroke();
+        if (count <= w / 7) {                                  // few points: show the individual samples
+          for (let i = i0; i <= i1; i++) { const y = a[i]; if (!Number.isFinite(y)) continue; ctx.beginPath(); ctx.arc(px(S.T[i]), py(fromC(y)), 2.4, 0, 6.2832); ctx.fill(); }
+        }
+      } else {                                                 // many points: min/max per pixel column
+        let col = null, lo = 0, hi = 0, prevCol = -9;
+        const flush = () => {
+          if (col === null) return;
+          if (col - prevCol > 2) ctx.moveTo(col, py(fromC(lo))); else ctx.lineTo(col, py(fromC(lo)));
+          ctx.lineTo(col, py(fromC(hi))); prevCol = col;
+        };
+        for (let i = i0; i <= i1; i++) {
+          const y = a[i]; if (!Number.isFinite(y)) continue;
+          const cc = Math.round(px(S.T[i]));
+          if (cc !== col) { flush(); col = cc; lo = hi = y; } else { if (y < lo) lo = y; if (y > hi) hi = y; }
+        }
+        flush(); ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+
+  if (!S.T.length) { ctx.fillStyle = muted; ctx.textAlign = 'center'; ctx.font = '15px system-ui, sans-serif'; ctx.fillText('No data yet. Connect to the T400 (or try Demo).', PAD.l + w / 2, PAD.t + h / 2); }
+
+  // Hover read-out
+  if (hover && S.T.length) {
+    const t = v.start + (hover.x - PAD.l) / w * (v.end - v.start);
+    let i = lowerBound(S.T, t); if (i > 0 && (i === S.T.length || t - S.T[i - 1] < S.T[i] - t)) i--;
+    const xx = Math.round(px(S.T[i])) + .5;
+    if (xx >= PAD.l && xx <= PAD.l + w) {
+      ctx.strokeStyle = axis; ctx.beginPath(); ctx.moveTo(xx, PAD.t); ctx.lineTo(xx, PAD.t + h); ctx.stroke();
+      const rows = [[fmtDate(S.T[i], S.timeSource === 'device' ? 1 : 3), null]];
+      for (let c = 0; c < N_CH; c++) if (S.visible[c]) rows.push([`${chName(c)}  ${fmtVal(fromC(S.V[c][i]))} ${unitLabel()}`, css('--ch' + (c + 1))]);
+      ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'left';
+      const bw = Math.max(...rows.map(r => ctx.measureText(r[0]).width)) + 26, bh = rows.length * 17 + 8;
+      let bx = xx + 12; if (bx + bw > PAD.l + w) bx = xx - 12 - bw;
+      const by = Math.min(Math.max(PAD.t + 4, hover.y - bh / 2), PAD.t + h - bh - 2);
+      ctx.fillStyle = css('--panel'); ctx.strokeStyle = axis; ctx.globalAlpha = .96;
+      ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 6); ctx.fill(); ctx.stroke(); ctx.globalAlpha = 1;
+      rows.forEach((r, k) => {
+        const yy = by + 13 + k * 17;
+        if (r[1]) { ctx.fillStyle = r[1]; ctx.fillRect(bx + 8, yy - 4, 8, 8); ctx.fillStyle = text; ctx.fillText(r[0], bx + 21, yy); }
+        else { ctx.fillStyle = muted; ctx.fillText(r[0], bx + 8, yy); }
+      });
+    }
+  }
+}
+
+/* chart interaction: wheel zoom, drag to pan, hover */
+let drag = null;
+const plotFrac = e => { const r = cv.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left - PAD.l) / (CW - PAD.l - PAD.r))); };
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = Math.exp(e.deltaY * 0.0016);
+  if (e.shiftKey && !S.view.autoY) {                    // Shift + wheel: zoom Y when Auto Y is off
+    const v = S.view, r = cv.getBoundingClientRect(), f = 1 - Math.min(1, Math.max(0, (e.clientY - r.top - PAD.t) / (CH - PAD.t - PAD.b)));
+    const y = v.yMin + f * (v.yMax - v.yMin), range = (v.yMax - v.yMin) * factor;
+    v.yMin = y - f * range; v.yMax = v.yMin + range; requestDraw();
+  } else zoom(factor, plotFrac(e));
+}, { passive: false });
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId); const v = S.view;
+  drag = { x: e.clientX, y: e.clientY, start: v.start, end: v.end, yMin: v.yMin, yMax: v.yMax, moved: false };
+  cv.style.cursor = 'grabbing';
+});
+cv.addEventListener('pointermove', e => {
+  const r = cv.getBoundingClientRect(); hover = { x: e.clientX - r.left, y: e.clientY - r.top };
+  if (drag) {
+    const w = CW - PAD.l - PAD.r, dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.moved = drag.moved || Math.abs(dx) + Math.abs(dy) > 3;
+    const span = drag.end - drag.start, v = S.view;
+    v.start = drag.start - dx / w * span; v.end = drag.end - dx / w * span;
+    if (!v.autoY) { const rg = drag.yMax - drag.yMin, hh = CH - PAD.t - PAD.b; v.yMin = drag.yMin + dy / hh * rg; v.yMax = drag.yMax + dy / hh * rg; }
+    const [, t1] = dataExtent(); v.mode = v.end >= t1 ? 'follow' : 'free'; if (v.mode === 'follow') { v.span = span; applyViewMode(); }
+    updateScrollbar(); syncWindowSelect();
+  }
+  requestDraw();
+});
+cv.addEventListener('pointerup', () => { drag = null; cv.style.cursor = 'crosshair'; });
+cv.addEventListener('pointerleave', () => { hover = null; requestDraw(); });
+cv.addEventListener('dblclick', () => { S.view.mode = 'fit'; applyViewMode(); requestDraw(); });
+
+/* scroll bar under the chart */
+function scrollTotals() { const [t0, t1] = dataExtent(), v = S.view; return [Math.min(t0, v.start), Math.max(t1, v.end)]; }
+function updateScrollbar() {
+  const v = S.view, [a, b] = scrollTotals(), tot = Math.max(b - a, 1), th = $('thumb');
+  th.style.left = ((v.start - a) / tot * 100) + '%'; th.style.width = (Math.min(1, (v.end - v.start) / tot) * 100) + '%';
+}
+let sdrag = null;
+$('thumb').addEventListener('pointerdown', e => {
+  e.stopPropagation(); $('thumb').setPointerCapture(e.pointerId); $('thumb').classList.add('drag');
+  const [a, b] = scrollTotals(); sdrag = { x: e.clientX, start: S.view.start, end: S.view.end, tot: b - a, w: $('scroll').clientWidth };
+});
+$('thumb').addEventListener('pointermove', e => {
+  if (!sdrag) return; const dt = (e.clientX - sdrag.x) / sdrag.w * sdrag.tot, v = S.view, [, t1] = dataExtent();
+  v.start = sdrag.start + dt; v.end = sdrag.end + dt; v.mode = v.end >= t1 ? 'follow' : 'free';
+  if (v.mode === 'follow') { v.span = sdrag.end - sdrag.start; applyViewMode(); }
+  syncWindowSelect(); updateScrollbar(); requestDraw();
+});
+$('thumb').addEventListener('pointerup', () => { sdrag = null; $('thumb').classList.remove('drag'); updateScrollbar(); });
+$('scroll').addEventListener('pointerdown', e => {
+  if (e.target !== $('scroll')) return;
+  const th = $('thumb').getBoundingClientRect(); panBy((e.clientX < th.left ? -1 : 1) * (S.view.end - S.view.start) * 0.9);
+});
+
+/* ------------------------------------------------------------------------------------- UI updates */
+const savedNames = ['', '', '', ''];      // value of a name when editing began, for Escape
+function setChannelName(c, text) {          // programmatic rename (e.g. names taken from an opened file)
+  S.names[c] = text.slice(0, 24); const box = $('name' + c); if (box) box.value = chName(c); requestDraw();
+}
+function buildCards() {
+  const wrap = $('cards'); wrap.innerHTML = '';
+  for (let c = 0; c < N_CH; c++) {
+    const d = document.createElement('div'); d.className = 'card'; d.style.setProperty('--c', `var(--ch${c + 1})`); d.id = 'card' + c;
+    d.innerHTML = `<div class="head"><input type="checkbox" ${S.visible[c] ? 'checked' : ''} title="Show this channel on the chart" aria-label="Show channel ${c + 1}">
+      <input type="text" class="name" id="name${c}" maxlength="24" spellcheck="false" autocomplete="off" title="Click to rename this channel"></div>
+      <div class="val"><span id="val${c}">–</span><small id="unit${c}"></small></div><div class="stats" id="stat${c}">&nbsp;</div>`;
+    const box = d.querySelector('input[type=checkbox]'), name = d.querySelector('.name');
+    box.addEventListener('change', e => { S.visible[c] = e.target.checked; d.classList.toggle('off', !e.target.checked); savePrefs(); requestDraw(); });
+    name.value = chName(c); name.placeholder = `Channel ${c + 1}`;
+    name.addEventListener('focus', () => name.select());
+    name.addEventListener('input', () => { S.names[c] = name.value.trim().slice(0, 24); requestDraw(); });      // chart tooltip follows as you type
+    name.addEventListener('change', () => { S.names[c] = name.value.trim().slice(0, 24); name.value = chName(c); savePrefs(); requestDraw(); });   // an empty name goes back to the default
+    name.addEventListener('keydown', e => {
+      if (e.key === 'Enter') name.blur();
+      else if (e.key === 'Escape') { name.value = S.names[c] = savedNames[c]; name.blur(); requestDraw(); }
+    });
+    name.addEventListener('focusin', () => { savedNames[c] = S.names[c]; });
+    d.classList.toggle('off', !S.visible[c]); wrap.appendChild(d);
+  }
+}
+function updateUI() {
+  const n = S.T.length, last = n - 1;
+  for (let c = 0; c < N_CH; c++) {
+    const a = S.V[c], cur = n ? a[last] : NaN;
+    $('val' + c).textContent = fmtVal(fromC(cur)); $('unit' + c).textContent = Number.isFinite(cur) ? unitLabel() : '';
+    let st = n ? 'no probe' : '&nbsp;';
+    if (n && Number.isFinite(cur) || n && a.some(Number.isFinite)) {
+      const [i0, i1] = visibleRange(); let lo = Infinity, hi = -Infinity, sum = 0, k = 0;
+      for (let i = i0; i <= i1; i++) { const x = a[i]; if (Number.isFinite(x)) { if (x < lo) lo = x; if (x > hi) hi = x; sum += x; k++; } }
+      st = k ? `min ${fmtVal(fromC(lo))}  max ${fmtVal(fromC(hi))}  avg ${fmtVal(fromC(sum / k))}` : 'no data in view';
+    }
+    $('stat' + c).innerHTML = st;
+  }
+  const d = S.dev;
+  if (S.file) {
+    const f = S.file;
+    $('iMode').textContent = 'Viewing file ' + f.name; $('iInterval').textContent = f.intervalSec === null ? '–' : f.intervalSec < 1 ? '500 ms' : fmtDuration(f.intervalSec * 1000);
+    $('iUnit').textContent = f.unit === 'K' ? 'Kelvin' : f.unit === 'F' ? '°F (Fahrenheit)' : '°C (Celsius)';
+    $('iCount').textContent = n.toLocaleString(); $('iLast').textContent = fmtDate(f.end); $('iClock').textContent = 'times from the file'; $('iClock').style.color = '';
+    $('btnSync').disabled = true; $('btnSave').disabled = !n; $('btnSaveAll').disabled = !n; $('btnClear').disabled = !n; $('btnClear').textContent = 'Close file';
+    updateScrollbar(); return;
+  }
+  $('btnClear').textContent = 'Clear';
+  $('iMode').textContent = d.known ? (d.file ? 'Logging to SD card: ' + d.file : 'Not logging to SD card') : '–';
+  $('iInterval').textContent = fmtInterval(d.interval);
+  $('iUnit').textContent = d.known ? (d.unit === 'K' ? 'Kelvin' : d.unit === 'F' ? '°F (Fahrenheit)' : '°C (Celsius)') : '–';
+  $('iCount').textContent = n.toLocaleString();
+  const age = Date.now() - S.lastSampleAt;
+  $('iLast').textContent = n ? (age < 1500 ? 'just now' : fmtDuration(age) + ' ago') : '–';
+  const connected = !!(S.conn.port || S.conn.demo);
+  if (S.offsets.length >= 3 && connected) {
+    const sorted = [...S.offsets].sort((a, b) => a - b), med = sorted[sorted.length >> 1];
+    $('iClock').textContent = Math.abs(med) < 2500 ? 'in sync with this PC' : `${fmtDuration(med)} ${med < 0 ? 'behind' : 'ahead of'} this PC`;
+    $('iClock').style.color = Math.abs(med) < 2500 ? 'var(--good)' : 'var(--warn)';
+  } else if (connected && n && !Number.isFinite(S.TD[last])) { $('iClock').textContent = 'not set'; $('iClock').style.color = 'var(--warn)'; }
+  else { $('iClock').textContent = '–'; $('iClock').style.color = ''; }
+  $('btnSync').disabled = !S.conn.writer;
+  $('btnSave').disabled = !n; $('btnSaveAll').disabled = !n; $('btnClear').disabled = !n;
+  updateScrollbar();
+}
+function setConn(state, text) {
+  $('dot').className = 'dot ' + (state || ''); $('connText').textContent = text;
+  const on = state === 'on' || state === 'busy';
+  $('btnConnect').textContent = on ? 'Disconnect' : 'Connect'; $('btnConnect').classList.toggle('primary', !on);
+  $('btnDemo').textContent = S.conn.demo ? 'Stop demo' : 'Demo';
+  $('btnAny').disabled = on;
+}
+function banner(msg) { const b = $('banner'); b.textContent = msg || ''; b.classList.toggle('show', !!msg); }
+
+/* ------------------------------------------------------------------------------------- serial link */
+const hasSerial = 'serial' in navigator;
+async function openPort(port) {
+  const c = S.conn; c.manualDisconnect = false; setConn('busy', 'Connecting…');
+  try {
+    await port.open({ baudRate: 9600, bufferSize: 1 << 16 });
+  } catch (e) {
+    setConn('err', 'Could not open the port');
+    banner('Could not open the serial port (' + e.message + '). Close any other program using it, such as the Arduino Serial Monitor, then try again.');
+    logMsg('Open failed: ' + e.message, 'err'); return;
+  }
+  try { await port.setSignals({ dataTerminalReady: true, requestToSend: false }); } catch (e) { /* the T400 needs DTR to send; most drivers set it on open */ }
+  const info = port.getInfo ? port.getInfo() : {};
+  const id = info.usbVendorId ? ` (USB ${info.usbVendorId.toString(16).toUpperCase()}:${(info.usbProductId || 0).toString(16).toUpperCase().padStart(4, '0')})` : '';
+  c.port = port; c.writer = port.writable.getWriter(); banner('');
+  setConn('on', 'Connected' + id); logMsg('Connected' + id, 'ev');
+  if (info.usbProductId === 0x1000) banner('This is the T400 bootloader port, not the running firmware. Power-cycle the T400 (or finish the upload) and reconnect.');
+  readLoop(port);
+  setTimeout(() => sendLine('H'), 600);
+  updateUI();
+}
+async function readLoop(port) {
+  const c = S.conn; let buf = '';
+  const decoder = new TextDecoderStream();
+  const closed = port.readable.pipeTo(decoder.writable).catch(() => {});
+  const reader = decoder.readable.getReader(); c.reader = reader;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += value; let k;
+      while ((k = buf.search(/\r?\n/)) >= 0) { const line = buf.slice(0, k); buf = buf.slice(buf[k] === '\r' ? k + 2 : k + 1); handleLine(line); }
+      if (buf.length > 2000) buf = '';
+    }
+  } catch (e) { /* port lost */ }
+  try { reader.releaseLock(); } catch (e) { /* ignore */ }
+  await closed;
+  if (c.port === port) await teardown(port, c.manualDisconnect ? 'Disconnected' : 'Connection lost. Waiting for the T400 to come back…');
+}
+async function teardown(port, text) {
+  const c = S.conn;
+  try { c.writer && c.writer.releaseLock(); } catch (e) { /* ignore */ }
+  try { await port.close(); } catch (e) { /* already gone */ }
+  c.port = null; c.writer = null; c.reader = null;
+  setConn('', text); if (!c.manualDisconnect) setConn('err', text); logMsg(text, c.manualDisconnect ? 'ev' : 'err'); updateUI();
+}
+async function disconnect() {
+  const c = S.conn; c.manualDisconnect = true;
+  if (c.demo) { stopDemo(); return; }
+  if (c.reader) { try { await c.reader.cancel(); } catch (e) { /* ignore */ } }
+}
+async function sendLine(text) {
+  const c = S.conn;
+  if (c.demo) { handleDemoCommand(text); return; }
+  if (!c.writer) return;
+  try { await c.writer.write(new TextEncoder().encode(text + '\n')); } catch (e) { logMsg('Send failed: ' + e.message, 'err'); }
+}
+async function connectClicked(anyPort) {
+  const c = S.conn;
+  if (c.port || c.demo) { await disconnect(); return; }
+  if (!hasSerial || !leaveFileForLive()) return;
+  try {
+    const port = await navigator.serial.requestPort(anyPort ? {} : { filters: [{ usbVendorId: 0x2B51 }] });
+    await openPort(port);
+  } catch (e) {
+    if (e.name !== 'NotFoundError') logMsg('Port selection failed: ' + e.message, 'err');
+    else if (!anyPort) banner('No T400 was found. Check the USB cable and that the T400 is switched on, or choose "Other port…".');
+  }
+}
+async function syncClock() {
+  const now = new Date(), next = new Date(Math.ceil((now.getTime() + 30) / 1000) * 1000);     // start of the next whole second
+  await new Promise(r => setTimeout(r, next.getTime() - Date.now() - 4));
+  await sendLine('T' + fmtDate(next.getTime())); S.offsets.length = 0;
+  toast('Sent the PC time to the T400');
+}
+if (hasSerial) {
+  navigator.serial.addEventListener('connect', async e => {            // T400 plugged in again: reconnect on its own
+    if (S.conn.port || S.conn.demo || S.conn.manualDisconnect) return;
+    const info = e.target.getInfo ? e.target.getInfo() : {};
+    if (info.usbVendorId === 0x2B51 && info.usbProductId !== 0x1000) { await new Promise(r => setTimeout(r, 800)); openPort(e.target); }
+  });
+  navigator.serial.addEventListener('disconnect', () => { /* the read loop notices and reports it */ });
+}
+
+/* ------------------------------------------------------------------------------------------- demo */
+function startDemo() {
+  const c = S.conn; if (c.port) return;
+  let elapsed = 0, k = 0; const dev = { unit: 'C', interval: 0, file: null };
+  c.demo = { dev, stop: null }; setConn('on', 'Demo mode (simulated T400)');
+  logMsg('Demo mode started: simulated readings', 'ev');
+  const status = () => handleLine(`S,0.15,${dev.unit},${dev.interval},${dev.file || '-'}`);
+  status();
+  c.demo.timer = setInterval(() => {
+    const t = Date.now(); k++; elapsed += 0.5;
+    const base = [22 + 6 * Math.sin(k / 60), 35 + 10 * Math.sin(k / 90 + 1), 18 + 3 * Math.sin(k / 40 + 2) + (k % 200 < 100 ? 0 : 4)];
+    const vals = base.map(v => v + (Math.random() - .5) * .3);
+    const conv = v => dev.unit === 'F' ? v * 1.8 + 32 : dev.unit === 'K' ? v + 273.15 : v;
+    const ts = fmtDate(t, 1).replace(/\.\d$/, '.' + (k % 2 ? 5 : 0));
+    handleLine(`${elapsed.toFixed(1)}, ${ts}, ${vals.map(v => conv(v).toFixed(1)).join(', ')}, -`);
+  }, 500);
+}
+function stopDemo() {
+  const c = S.conn; if (!c.demo) return; clearInterval(c.demo.timer); c.demo = null;
+  setConn('', 'Not connected'); logMsg('Demo mode stopped', 'ev'); updateUI();
+}
+function handleDemoCommand(text) {
+  if (text === 'H') handleLine(`S,0.15,${S.conn.demo.dev.unit},${S.conn.demo.dev.interval},${S.conn.demo.dev.file || '-'}`);
+  else if (text.startsWith('T')) { logMsg('Device: OK ' + text.slice(1), 'ev'); }
+}
+
+/* ------------------------------------------------------------------------------------------- CSV */
+function buildCsv(i0, i1) {
+  const u = unitLabel(), cell = t => /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  const rows = ['PC time,Device clock,Elapsed (s),' + Array.from({ length: N_CH }, (_, c) => cell(`${chName(c)} (${u})`)).join(',')];
+  for (let i = i0; i <= i1; i++) {
+    const cells = [fmtDate(S.TP[i], 3), Number.isFinite(S.TD[i]) ? fmtDate(S.TD[i], 1) : '', S.E[i]];
+    for (let c = 0; c < N_CH; c++) cells.push(Number.isFinite(S.V[c][i]) ? fromC(S.V[c][i]).toFixed(1) : '');
+    rows.push(cells.join(','));
+  }
+  return '\uFEFF' + rows.join('\r\n') + '\r\n';
+}
+async function saveCsv(all) {
+  if (!S.T.length) return;
+  let i0 = 0, i1 = S.T.length - 1;
+  if (!all) {                                            // exactly the samples in the visible time range
+    i0 = lowerBound(S.T, S.view.start); i1 = lowerBound(S.T, S.view.end + 0.5) - 1;
+    if (i1 < i0) { toast('Nothing in the visible range'); return; }
+  }
+  const d = new Date(S.T[i0]), name = `t400_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.csv`;
+  const text = buildCsv(i0, i1);
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await showSaveFilePicker({ suggestedName: name, types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }] });
+      const w = await h.createWritable(); await w.write(text); await w.close();
+      toast(`Saved ${(i1 - i0 + 1).toLocaleString()} samples to ${h.name}`); return;
+    } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast(`Saved ${(i1 - i0 + 1).toLocaleString()} samples as ${name}`);
+}
+
+/* ---------------------------------------------------------------------------------------- open a CSV file */
+const MAX_FILE_ROWS = 2000000;
+function splitCsv(line) {                                // comma separated, with optional "quoted" cells
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { out.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur.trim()); return out;
+}
+const csvNum = c => (c === undefined || c === '' || c === '-') ? NaN : (/^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(c) ? parseFloat(c) : NaN);
+
+/* Understands the T400's own files ("time (s), timestamp, temp_0 (C), ..."), older firmware files without the timestamp
+   column, and the CSVs saved by this page ("PC time, Device clock, Elapsed (s), Ch1 (°C), ..."). */
+function parseLogCsv(text, lastModified) {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  let li = 0; while (li < lines.length && !lines[li].trim()) li++;
+  if (li >= lines.length) throw new Error('The file is empty.');
+  const first = splitCsv(lines[li]);
+  const cols = { temps: [], elapsed: -1, ts: [], pc: -1 }; let unit = 'C', unitKnown = false; const names = [];
+  const hasHeader = /[a-z]/i.test(first.join('')) && !/^[\d.]/.test(first[0]);
+  if (hasHeader) {
+    first.forEach((c, i) => {
+      // a temperature column is "temp_0 (C)", "Ch1 (°F)" or "<any custom channel name> (°C)": it ends in a unit
+      if (/^(temp_?\d+|ch\s*\d+)/i.test(c) || /\(\s*°?\s*[CFK]\s*\)\s*$/i.test(c)) {
+        cols.temps.push(i); const u = /\(\s*°?\s*([CFK])\s*\)\s*$/i.exec(c); if (u) { unit = u[1].toUpperCase(); unitKnown = true; }
+        const label = c.replace(/\s*\(\s*°?\s*[CFK]\s*\)\s*$/i, '');
+        names.push(/^(temp_?\d+|ch(annel)?\s*\d+)$/i.test(label) ? '' : label);
+      } else if (/^(time \(s\)|elapsed)/i.test(c)) cols.elapsed = i;
+      else if (/^(timestamp|device clock)/i.test(c)) cols.ts.push(i);
+      else if (/^pc time/i.test(c)) cols.pc = i;
+    });
+    li++;
+  } else {                                               // no header: guess the layout from the first row
+    const hasTs = /^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(\.\d+)?|unset)$/.test(first[1] || '');
+    cols.elapsed = 0; if (hasTs) cols.ts.push(1);
+    for (let i = hasTs ? 2 : 1; i < first.length; i++) cols.temps.push(i);
+  }
+  if (cols.pc >= 0) cols.ts.push(cols.pc);
+  if (!cols.temps.length) throw new Error('This does not look like a T400 log: no temperature columns (temp_0, temp_1, ... or Ch1, Ch2, ...) were found.');
+  const tcols = cols.temps.slice(0, N_CH), maxCol = Math.max(...tcols, cols.elapsed, ...cols.ts);
+
+  const rows = []; let skipped = 0;
+  for (; li < lines.length; li++) {
+    const line = lines[li]; if (!line.trim()) continue;
+    const f = splitCsv(line);
+    if (f.length <= Math.max(...tcols)) { skipped++; continue; }
+    const e = cols.elapsed >= 0 ? csvNum(f[cols.elapsed]) : NaN;
+    let t = NaN; for (const i of cols.ts) { t = parseDeviceTime(f[i]); if (Number.isFinite(t)) break; }
+    const v = tcols.map(i => csvNum(f[i])); while (v.length < N_CH) v.push(NaN);
+    const anyNumber = v.some(Number.isFinite) || tcols.every(i => f[i] === '-' || f[i] === '');
+    if (!anyNumber || (!Number.isFinite(e) && !Number.isFinite(t))) { skipped++; continue; }      // repeated header, junk
+    rows.push({ e, t, v });
+    if (rows.length >= MAX_FILE_ROWS) { skipped += lines.length - li - 1; break; }
+  }
+  if (!rows.length) throw new Error('No data rows were found in the file.');
+
+  // Place every row in time. Rows with a timestamp use it; the others are positioned from the elapsed time.
+  let anchor = NaN, estimated = 0, note = '';
+  const firstStamped = rows.find(r => Number.isFinite(r.t) && Number.isFinite(r.e));
+  if (firstStamped) anchor = firstStamped.t - firstStamped.e * 1000;
+  else {
+    const lastWithE = [...rows].reverse().find(r => Number.isFinite(r.e));
+    if (lastWithE && lastModified) { anchor = lastModified - lastWithE.e * 1000; note = "The file has no usable timestamps (the T400's clock was not set). Times are estimated from the file's last-modified date."; }
+  }
+  let prevT = NaN;
+  for (const r of rows) {
+    if (!Number.isFinite(r.t)) {
+      if (Number.isFinite(r.e) && Number.isFinite(anchor)) { r.t = anchor + r.e * 1000; estimated++; }
+      else if (Number.isFinite(prevT)) { r.t = prevT + 1000; estimated++; }
+    }
+    if (Number.isFinite(r.t)) prevT = r.t;
+  }
+  const placed = rows.filter(r => Number.isFinite(r.t));
+  if (!placed.length) throw new Error('The rows have neither timestamps nor elapsed times, so they cannot be placed on a time axis.');
+  skipped += rows.length - placed.length;
+  if (estimated && !note) note = `${estimated.toLocaleString()} rows had no timestamp; their times were worked out from the elapsed time.`;
+  if (!unitKnown) note += (note ? ' ' : '') + 'No unit was found in the header: assuming °C.';
+  const deltas = []; for (let i = 1; i < placed.length && deltas.length < 2000; i++) { const d = placed[i].e - placed[i - 1].e; if (d > 0) deltas.push(d); }
+  deltas.sort((a, b) => a - b);
+  return { rows: placed, unit, skipped, note, estimated, names, intervalSec: deltas.length ? deltas[deltas.length >> 1] : null };
+}
+
+function showFile(name, parsed) {
+  clearData();                                           // also ends any previous file view
+  const { rows, unit } = parsed;
+  for (const r of rows) {
+    S.TP.push(r.t); S.TD.push(r.t); S.E.push(Number.isFinite(r.e) ? r.e : NaN);
+    for (let c = 0; c < N_CH; c++) S.V[c].push(Number.isFinite(r.v[c]) ? toC(r.v[c], unit) : NaN);
+  }
+  S.timeSource = 'device'; $('selTime').value = 'device'; rebuildX();
+  S.unit = unit; $('selUnit').value = unit;
+  const custom = (parsed.names || []).slice(0, N_CH);                  // channel names stored in the file's header
+  custom.forEach((n, c) => { if (n) setChannelName(c, n); });
+  if (custom.some(Boolean)) logMsg('Channel names were taken from the file: ' + custom.map((n, c) => n || chName(c)).join(', '), 'ev');
+  S.file = { name, unit, count: rows.length, skipped: parsed.skipped, start: S.T[0], end: S.T[S.T.length - 1], intervalSec: parsed.intervalSec, note: parsed.note };
+  S.view.mode = 'fit'; applyViewMode(); updateFileBar(); updateUI(); requestDraw();
+  logMsg(`Opened ${name}: ${rows.length.toLocaleString()} samples${parsed.skipped ? ', ' + parsed.skipped + ' lines skipped' : ''}`, 'ev');
+}
+function updateFileBar() {
+  const f = S.file, bar = $('fileBar'); bar.classList.toggle('show', !!f);
+  if (!f) return;
+  $('fbName').textContent = f.name;
+  $('fbInfo').textContent = `${f.count.toLocaleString()} samples, ${fmtDate(f.start)} to ${fmtDate(f.end)}, ` +
+    `${f.unit === 'K' ? 'K' : '°' + f.unit}, about ${f.intervalSec === null ? '?' : f.intervalSec < 1 ? '500 ms' : fmtDuration(f.intervalSec * 1000)} between samples` +
+    (f.skipped ? `, ${f.skipped.toLocaleString()} lines skipped` : '') + '. Live data is paused while a file is open.';
+  $('fbNote').textContent = f.note || '';
+}
+async function loadFile(file) {
+  if (!file) return;
+  if (S.T.length && !S.file && !confirm(`Replace the ${S.T.length.toLocaleString()} sample${S.T.length === 1 ? '' : 's'} collected so far with "${file.name}"?\nUse Save CSV first if you want to keep them.`)) return;
+  try {
+    const parsed = parseLogCsv(await file.text(), file.lastModified);
+    showFile(file.name, parsed);
+    toast(`Opened ${file.name}: ${parsed.rows.length.toLocaleString()} samples`);
+  } catch (e) {
+    banner(`Could not open "${file.name}": ${e.message}`); logMsg(`Open failed (${file.name}): ${e.message}`, 'err');
+    setTimeout(() => { if ($('banner').textContent.startsWith('Could not open')) banner(''); }, 8000);
+  }
+}
+function closeFile() { clearData(); S.view.mode = 'follow'; applyViewMode(); requestDraw(); updateUI(); toast('File closed. Live data resumed.'); }
+function leaveFileForLive() {                            // before connecting or starting the demo
+  if (!S.file) return true;
+  if (!confirm('Close the open file and switch to live data?')) return false;
+  closeFile(); return true;
+}
+
+/* ------------------------------------------------------------------------------------------- init */
+function init() {
+  buildCards();
+  $('selWindow').innerHTML = WINDOWS.map(w => `<option value="${w[0]}">${w[1]}</option>`).join('');
+  $('selUnit').value = S.unit; $('selTime').value = S.timeSource;
+  $('selWindow').addEventListener('change', e => setWindow(e.target.value));
+  $('btnLive').addEventListener('click', () => { S.view.mode = 'follow'; applyViewMode(); requestDraw(); });
+  $('btnBack').addEventListener('click', () => panBy(-S.view.span * 0.8));
+  $('btnFwd').addEventListener('click', () => panBy(S.view.span * 0.8));
+  $('btnZoomIn').addEventListener('click', () => zoom(0.5, 0.5));
+  $('btnZoomOut').addEventListener('click', () => zoom(2, 0.5));
+  $('btnFit').addEventListener('click', () => { S.view.mode = 'fit'; applyViewMode(); requestDraw(); });
+  $('chkAutoY').addEventListener('change', e => { S.view.autoY = e.target.checked; requestDraw(); });
+  $('selUnit').addEventListener('change', e => { S.unit = e.target.value; savePrefs(); requestDraw(); updateUI(); });
+  $('selTime').addEventListener('change', e => { S.timeSource = e.target.value; savePrefs(); rebuildX(); applyViewMode(); requestDraw(); });
+  $('btnClear').addEventListener('click', () => { if (S.file) { closeFile(); return; } if (confirm(`Clear all ${S.T.length.toLocaleString()} collected samples? Save a CSV first if you need them.`)) clearData(); });
+  $('btnSave').addEventListener('click', () => saveCsv(false));
+  $('btnSaveAll').addEventListener('click', () => saveCsv(true));
+  $('btnSync').addEventListener('click', syncClock);
+  $('btnOpen').addEventListener('click', () => $('fileIn').click());
+  $('fileIn').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+  $('btnCloseFile').addEventListener('click', closeFile);
+  let dragDepth = 0;
+  window.addEventListener('dragenter', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragDepth++; $('drop').classList.add('show'); } });
+  window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('drop').classList.remove('show'); } });
+  window.addEventListener('dragover', e => { e.preventDefault(); });
+  window.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('drop').classList.remove('show'); loadFile(e.dataTransfer.files[0]); });
+  $('btnConnect').addEventListener('click', () => connectClicked(false));
+  $('btnAny').addEventListener('click', () => connectClicked(true));
+  $('btnDemo').addEventListener('click', () => { if (S.conn.demo) stopDemo(); else if (!S.conn.port && leaveFileForLive()) startDemo(); });
+  new ResizeObserver(resizeChart).observe($('plot'));
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', requestDraw);
+  window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'ArrowLeft') panBy(-S.view.span * 0.25); else if (e.key === 'ArrowRight') panBy(S.view.span * 0.25);
+    else if (e.key === '+' || e.key === '=') zoom(0.7, 0.5); else if (e.key === '-') zoom(1 / 0.7, 0.5);
+  });
+  setInterval(() => {                                    // 4 times a second: readouts, and the status refresh requests
+    updateUI();
+    if (S.statusPending && performance.now() > S.statusPending) { S.statusPending = null; sendLine('H'); }
+  }, 250);
+  setInterval(() => { if (S.conn.writer) sendLine('H'); }, 20000);    // cheap safety net: re-read unit/interval/logging state
+  if (!hasSerial) {
+    $('btnConnect').disabled = true; $('btnAny').disabled = true;
+    banner('This browser does not support Web Serial. Open this page in Chrome or Edge (the Demo button still works).');
+  } else {
+    navigator.serial.getPorts().then(ports => {         // reconnect automatically to a T400 this page was allowed to use before
+      const p = ports.find(p => { const i = p.getInfo(); return i.usbVendorId === 0x2B51 && i.usbProductId !== 0x1000; });
+      if (p && !S.conn.port) openPort(p);
+    }).catch(() => {});
+  }
+  setConn('', 'Not connected'); syncWindowSelect(); resizeChart(); updateUI(); requestDraw();
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+#include "buttons.h"
+#include "t400.h"
+#include <avr/sleep.h>
+#include <avr/pgmspace.h>
+
+// Both tables live in flash to save RAM; use these accessors
+#define BUTTON_PIN(b)      pgm_read_byte(&buttonPins[b])
+#define ACTIVE_STATE(b)    pgm_read_byte(&activeState[b])
+
+volatile uint8_t stuckButtonMask;     // shared with the button interrupts
+volatile uint8_t pendingButtons;
+
+uint8_t buttonDebounce = 0;
+
+const uint8_t buttonPins[BUTTON_COUNT] PROGMEM = {
+  BUTTON_A_PIN,
+  BUTTON_B_PIN,
+  BUTTON_C_PIN,
+  BUTTON_D_PIN,
+  BUTTON_E_PIN,
+  BUTTON_POWER_PIN,
+};
+
+const uint8_t activeState[BUTTON_COUNT] PROGMEM = {
+  LOW,
+  LOW,
+  LOW,
+  LOW,
+  LOW,
+  HIGH,
+};
+
+void setupButtons() {
+
+  for(uint8_t b = 0; b < BUTTON_COUNT; b++) {
+    if(ACTIVE_STATE(b) == LOW) {
+      pinMode(BUTTON_PIN(b), INPUT_PULLUP);
+    }
+  }
+  
+  // SW_A 	Logging interval 	INT6 	PE6
+  EICRB &= ~0x30;    // Configure INT6 to trigger on low level
+  EIMSK |= _BV(INT6);    // and enable the INT6 interrupt
+
+
+  // SW_B   Logging start/stop  INT3  PD3
+  EICRA |= 0x40;    // Configure INT3 to trigger on any edge
+  EIMSK |= _BV(INT3);    // and enable the INT3 interrupt
+
+  // SW_C 	Temperature units 	PCINT4 	PB4
+  // SW_D 	Toggle channels 	PCINT5 	PB5
+  // SW_E 	Backlight               PCINT6 	PB6
+  // SW_PWR      Power on/off            PCINT7  PB7
+  PCMSK0 |= 0xF0;
+  PCICR |= _BV(PCIE0);
+  return;
+}
+
+// Scan for new button presses
+void buttonTask() {
+  
+  for(uint8_t b = 0; b < BUTTON_COUNT; b++) {
+    if(bitRead(stuckButtonMask, b)) {
+      if (digitalRead(BUTTON_PIN(b)) == !ACTIVE_STATE(b)) {
+        bitClear(stuckButtonMask, b);
+      }
+    }
+    else {
+      if (digitalRead(BUTTON_PIN(b)) == ACTIVE_STATE(b)) {
+        bitSet(stuckButtonMask, b);
+        bitSet(pendingButtons, b);
+      }
+    }
+  }
+  return;
+}
+
+
+bool buttonPending() {
+  return (pendingButtons != 0);
+}
+
+// If a button was pressed, return it!
+uint8_t buttonGetPending() {
+  uint8_t button = BUTTON_COUNT;
+  
+  noInterrupts();
+
+  for(uint8_t b = 0; b < BUTTON_COUNT; b++) {
+    if (bitRead(pendingButtons, b)) {
+      bitClear(pendingButtons, b);
+      button = b;
+      break;
+    }
+  }
+  
+  interrupts();
+  
+  return button;
+}
+
+// button interrupts
+ISR(INT6_vect) {
+  // Workaround for the issue that ISR6 needs to be level sensitive to wake the processor from power down:
+  // If we got here and the INT6 switch was low (button pressed), switch to rising mode so we don't get stuck here
+  // If we got here and the INT6 switch was was high (button released), switch to level mode so we can wake the processor
+  // In addition, don't put the processor in POWER_DOWN sleep mode when INT6 is level sensitive or the INT6 switch won't
+  // be able to wake the processor
+  if(digitalRead(BUTTON_A_PIN) == LOW) {
+    EICRB |= 0x30;    // Configure INT6 to trigger on rising edge
+    set_sleep_mode(SLEEP_MODE_IDLE);
+  }
+  else {
+    EICRB &= ~0x30;    // Configure INT6 to trigger on low level
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  }
+  
+  buttonTask();
+  return;
+}
+
+ISR(INT3_vect) { buttonTask();}
+ISR(PCINT0_vect) { buttonTask();}

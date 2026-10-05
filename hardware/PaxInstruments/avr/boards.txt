@@ -1,0 +1,51 @@
+# Pax Instruments T400 board definition for Arduino IDE 2.x
+#
+# The T400 is an ATmega32U4 @ 8 MHz with the Caterina bootloader and a pin map that is
+# identical to the Arduino Leonardo, so this definition re-uses the stock "arduino:avr"
+# core instead of shipping a forked copy of the Arduino core. The "T400" variant (variants/T400) is the
+# Leonardo pin map with the TX/RX LED macros removed: PD5 is the T400 power latch, and the stock
+# variant makes the USB core toggle it, which switches the board off.
+#
+# Install: copy the PaxInstruments folder (the one containing "avr") into
+#   <sketchbook>/hardware/     e.g. Documents/Arduino/hardware/PaxInstruments/avr/boards.txt
+# Requires the "Arduino AVR Boards" package (Boards Manager). Restart the IDE afterwards.
+
+t400.name=Pax Instruments T400
+
+t400.vid.0=0x2B51
+t400.pid.0=0x1005
+t400.vid.1=0x2B51
+t400.pid.1=0x1000
+
+t400.upload_port.0.vid=0x2B51
+t400.upload_port.0.pid=0x1005
+t400.upload_port.1.vid=0x2B51
+t400.upload_port.1.pid=0x1000
+t400.upload_port.2.board=t400
+
+t400.upload.tool=avrdude
+t400.upload.tool.default=avrdude
+t400.upload.protocol=avr109
+t400.upload.maximum_size=28672
+t400.upload.maximum_data_size=2560
+t400.upload.speed=57600
+t400.upload.disable_flushing=true
+t400.upload.use_1200bps_touch=true
+t400.upload.wait_for_upload_port=true
+
+# Deliberately no "bootloader.*" entries: the stock Leonardo bootloader is built for 16 MHz and would
+# brick a T400 if burned with "Burn Bootloader". The T400 bootloader hex files are in the original repo (production/).
+
+
+t400.build.mcu=atmega32u4
+t400.build.f_cpu=8000000L
+t400.build.vid=0x2B51
+t400.build.pid=0x1005
+t400.build.usb_product="T400"
+t400.build.usb_manufacturer="Pax Instruments"
+t400.build.board=AVR_T400
+t400.build.core=arduino:arduino
+t400.build.variant=T400
+# The I2C buffers only ever carry a handful of bytes; shrinking them frees 72 bytes of RAM
+# -mcall-prologues shares function entry/exit code, which saves about 800 bytes of flash
+t400.build.extra_flags={build.usb_flags} -DTWI_BUFFER_LENGTH=8 -mcall-prologues
